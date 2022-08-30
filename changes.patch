@@ -1,0 +1,358 @@
+diff --git a/schema.graphql b/schema.graphql
+index ae82105..31e380a 100644
+--- a/schema.graphql
++++ b/schema.graphql
+@@ -1,17 +1,17 @@
+-type Account @entity {
+-  "Account address"
+-  id: ID!
+-  transfersTo: [Transfer!] @derivedFrom(field: "to")
+-  transfersFrom: [Transfer!] @derivedFrom(field: "from")
++enum AssetStatus {
++  ISSUED
++  TRANSFERRED
++  BURNE
+ }
+ 
+-type Transfer @entity {
+-  id: ID!
+-  blockNumber: Int! @index
+-  timestamp: DateTime! @index
+-  extrinsicHash: String @index
+-  from: Account!
+-  to: Account!
+-  amount: BigInt! @index
+-  fee: BigInt! # fee is calculated at the best effort and may be zero for some old extrinsics
++type Asset @entity {
++ id: ID!
++ status: AssetStatus
+ }
++
++type AssetOperation @entity {
++  id: ID!
++  asset: Asset!
++  from: String
++  to: String
++}
+\ No newline at end of file
+diff --git a/src/model/generated/_assetStatus.ts b/src/model/generated/_assetStatus.ts
+new file mode 100644
+index 0000000..b6d186c
+--- /dev/null
++++ b/src/model/generated/_assetStatus.ts
+@@ -0,0 +1,5 @@
++export enum AssetStatus {
++  ISSUED = "ISSUED",
++  TRANSFERRED = "TRANSFERRED",
++  BURNE = "BURNE",
++}
+diff --git a/src/model/generated/account.model.ts b/src/model/generated/account.model.ts
+deleted file mode 100644
+index 09d6c5b..0000000
+--- a/src/model/generated/account.model.ts
++++ /dev/null
+@@ -1,21 +0,0 @@
+-import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_, OneToMany as OneToMany_} from "typeorm"
+-import {Transfer} from "./transfer.model"
+-
+-@Entity_()
+-export class Account {
+-  constructor(props?: Partial<Account>) {
+-    Object.assign(this, props)
+-  }
+-
+-  /**
+-   * Account address
+-   */
+-  @PrimaryColumn_()
+-  id!: string
+-
+-  @OneToMany_(() => Transfer, e => e.to)
+-  transfersTo!: Transfer[]
+-
+-  @OneToMany_(() => Transfer, e => e.from)
+-  transfersFrom!: Transfer[]
+-}
+diff --git a/src/model/generated/asset.model.ts b/src/model/generated/asset.model.ts
+new file mode 100644
+index 0000000..85bc892
+--- /dev/null
++++ b/src/model/generated/asset.model.ts
+@@ -0,0 +1,15 @@
++import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_} from "typeorm"
++import {AssetStatus} from "./_assetStatus"
++
++@Entity_()
++export class Asset {
++  constructor(props?: Partial<Asset>) {
++    Object.assign(this, props)
++  }
++
++  @PrimaryColumn_()
++  id!: string
++
++  @Column_("varchar", {length: 11, nullable: true})
++  status!: AssetStatus | undefined | null
++}
+diff --git a/src/model/generated/assetOperation.model.ts b/src/model/generated/assetOperation.model.ts
+new file mode 100644
+index 0000000..f20ed0e
+--- /dev/null
++++ b/src/model/generated/assetOperation.model.ts
+@@ -0,0 +1,22 @@
++import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_, ManyToOne as ManyToOne_, Index as Index_} from "typeorm"
++import {Asset} from "./asset.model"
++
++@Entity_()
++export class AssetOperation {
++  constructor(props?: Partial<AssetOperation>) {
++    Object.assign(this, props)
++  }
++
++  @PrimaryColumn_()
++  id!: string
++
++  @Index_()
++  @ManyToOne_(() => Asset, {nullable: true})
++  asset!: Asset
++
++  @Column_("text", {nullable: true})
++  from!: string | undefined | null
++
++  @Column_("text", {nullable: true})
++  to!: string | undefined | null
++}
+diff --git a/src/model/generated/index.ts b/src/model/generated/index.ts
+index 0264fef..57fcb31 100644
+--- a/src/model/generated/index.ts
++++ b/src/model/generated/index.ts
+@@ -1,2 +1,3 @@
+-export * from "./account.model"
+-export * from "./transfer.model"
++export * from "./asset.model"
++export * from "./_assetStatus"
++export * from "./assetOperation.model"
+diff --git a/src/model/generated/transfer.model.ts b/src/model/generated/transfer.model.ts
+deleted file mode 100644
+index edb9151..0000000
+--- a/src/model/generated/transfer.model.ts
++++ /dev/null
+@@ -1,40 +0,0 @@
+-import {Entity as Entity_, Column as Column_, PrimaryColumn as PrimaryColumn_, Index as Index_, ManyToOne as ManyToOne_} from "typeorm"
+-import * as marshal from "./marshal"
+-import {Account} from "./account.model"
+-
+-@Entity_()
+-export class Transfer {
+-  constructor(props?: Partial<Transfer>) {
+-    Object.assign(this, props)
+-  }
+-
+-  @PrimaryColumn_()
+-  id!: string
+-
+-  @Index_()
+-  @Column_("int4", {nullable: false})
+-  blockNumber!: number
+-
+-  @Index_()
+-  @Column_("timestamp with time zone", {nullable: false})
+-  timestamp!: Date
+-
+-  @Index_()
+-  @Column_("text", {nullable: true})
+-  extrinsicHash!: string | undefined | null
+-
+-  @Index_()
+-  @ManyToOne_(() => Account, {nullable: true})
+-  from!: Account
+-
+-  @Index_()
+-  @ManyToOne_(() => Account, {nullable: true})
+-  to!: Account
+-
+-  @Index_()
+-  @Column_("numeric", {transformer: marshal.bigintTransformer, nullable: false})
+-  amount!: bigint
+-
+-  @Column_("numeric", {transformer: marshal.bigintTransformer, nullable: false})
+-  fee!: bigint
+-}
+diff --git a/src/types/events.ts b/src/types/events.ts
+index 3c8f3b7..2894a06 100644
+--- a/src/types/events.ts
++++ b/src/types/events.ts
+@@ -1,10 +1,7 @@
+ import assert from 'assert'
+ import {Chain, ChainContext, EventContext, Event, Result} from './support'
+-import * as v1020 from './v1020'
+-import * as v1050 from './v1050'
+-import * as v9130 from './v9130'
+ 
+-export class BalancesTransferEvent {
++export class AssetsBurnedEvent {
+   private readonly _chain: Chain
+   private readonly event: Event
+ 
+@@ -12,53 +9,81 @@ export class BalancesTransferEvent {
+   constructor(ctx: ChainContext, event: Event)
+   constructor(ctx: EventContext, event?: Event) {
+     event = event || ctx.event
+-    assert(event.name === 'Balances.Transfer')
++    assert(event.name === 'Assets.Burned')
+     this._chain = ctx._chain
+     this.event = event
+   }
+ 
+   /**
+-   *  Transfer succeeded (from, to, value, fees).
++   * Some assets were destroyed.
+    */
+-  get isV1020(): boolean {
+-    return this._chain.getEventHash('Balances.Transfer') === '72e6f0d399a72f77551d560f52df25d757e0643d0192b3bc837cbd91b6f36b27'
++  get isV1201(): boolean {
++    return this._chain.getEventHash('Assets.Burned') === '7b313023dcadc0790714779ac69e85195d0b94fbfc5c5b1c65234ca592e0d3f7'
+   }
+ 
+   /**
+-   *  Transfer succeeded (from, to, value, fees).
++   * Some assets were destroyed.
+    */
+-  get asV1020(): [v1020.AccountId, v1020.AccountId, v1020.Balance, v1020.Balance] {
+-    assert(this.isV1020)
++  get asV1201(): {assetId: bigint, owner: Uint8Array, balance: bigint} {
++    assert(this.isV1201)
+     return this._chain.decodeEvent(this.event)
+   }
++}
++
++export class AssetsIssuedEvent {
++  private readonly _chain: Chain
++  private readonly event: Event
++
++  constructor(ctx: EventContext)
++  constructor(ctx: ChainContext, event: Event)
++  constructor(ctx: EventContext, event?: Event) {
++    event = event || ctx.event
++    assert(event.name === 'Assets.Issued')
++    this._chain = ctx._chain
++    this.event = event
++  }
+ 
+   /**
+-   *  Transfer succeeded (from, to, value).
++   * Some assets were issued.
+    */
+-  get isV1050(): boolean {
+-    return this._chain.getEventHash('Balances.Transfer') === 'dad2bcdca357505fa3c7832085d0db53ce6f902bd9f5b52823ee8791d351872c'
++  get isV1201(): boolean {
++    return this._chain.getEventHash('Assets.Issued') === '00b4e83fd8a2b78206f9e4f83e5841b01b15461279b6952b593fddd97bfa57f8'
+   }
+ 
+   /**
+-   *  Transfer succeeded (from, to, value).
++   * Some assets were issued.
+    */
+-  get asV1050(): [v1050.AccountId, v1050.AccountId, v1050.Balance] {
+-    assert(this.isV1050)
++  get asV1201(): {assetId: bigint, owner: Uint8Array, totalSupply: bigint} {
++    assert(this.isV1201)
+     return this._chain.decodeEvent(this.event)
+   }
++}
++
++export class AssetsTransferredEvent {
++  private readonly _chain: Chain
++  private readonly event: Event
++
++  constructor(ctx: EventContext)
++  constructor(ctx: ChainContext, event: Event)
++  constructor(ctx: EventContext, event?: Event) {
++    event = event || ctx.event
++    assert(event.name === 'Assets.Transferred')
++    this._chain = ctx._chain
++    this.event = event
++  }
+ 
+   /**
+-   * Transfer succeeded.
++   * Some assets were transferred.
+    */
+-  get isV9130(): boolean {
+-    return this._chain.getEventHash('Balances.Transfer') === '0ffdf35c495114c2d42a8bf6c241483fd5334ca0198662e14480ad040f1e3a66'
++  get isV1201(): boolean {
++    return this._chain.getEventHash('Assets.Transferred') === 'f65815f0a2516ce398b9e72fe858b92dc308f7815d5ec2c9ca9344c57874f4c2'
+   }
+ 
+   /**
+-   * Transfer succeeded.
++   * Some assets were transferred.
+    */
+-  get asV9130(): {from: v9130.AccountId32, to: v9130.AccountId32, amount: bigint} {
+-    assert(this.isV9130)
++  get asV1201(): {assetId: bigint, from: Uint8Array, to: Uint8Array, amount: bigint} {
++    assert(this.isV1201)
+     return this._chain.decodeEvent(this.event)
+   }
+ }
+diff --git a/src/types/support.ts b/src/types/support.ts
+index a46af0a..56ef5a9 100644
+--- a/src/types/support.ts
++++ b/src/types/support.ts
+@@ -16,6 +16,8 @@ export interface Chain {
+     getStorageItemTypeHash(prefix: string, name: string): string | undefined
+     getStorage(blockHash: string, prefix: string, name: string, ...args: any[]): Promise<any>
+     queryStorage(blockHash: string, prefix: string, name: string, ...args: any[]): Promise<any[]>
++    getConstantTypeHash(pallet: string, name: string): string | undefined
++    getConstant(pallet: string, name: string): any
+ }
+ 
+ 
+diff --git a/src/types/v1020.ts b/src/types/v1020.ts
+deleted file mode 100644
+index 668f015..0000000
+--- a/src/types/v1020.ts
++++ /dev/null
+@@ -1,5 +0,0 @@
+-import type {Result} from './support'
+-
+-export type AccountId = Uint8Array
+-
+-export type Balance = bigint
+diff --git a/src/types/v1050.ts b/src/types/v1050.ts
+deleted file mode 100644
+index 668f015..0000000
+--- a/src/types/v1050.ts
++++ /dev/null
+@@ -1,5 +0,0 @@
+-import type {Result} from './support'
+-
+-export type AccountId = Uint8Array
+-
+-export type Balance = bigint
+diff --git a/src/types/v9130.ts b/src/types/v9130.ts
+deleted file mode 100644
+index b4d85f3..0000000
+--- a/src/types/v9130.ts
++++ /dev/null
+@@ -1,3 +0,0 @@
+-import type {Result} from './support'
+-
+-export type AccountId32 = Uint8Array
+diff --git a/typegen.json b/typegen.json
+index c477243..3843a71 100644
+--- a/typegen.json
++++ b/typegen.json
+@@ -1,8 +1,10 @@
+ {
+   "outDir": "src/types",
+-  "specVersions": "https://kusama.archive.subsquid.io/graphql",
++  "specVersions": "https://moonbeam.archive.subsquid.io/graphql",
+   "events": [
+-    "Balances.Transfer"
++    "Assets.Issued",
++    "Assets.Transferred",
++    "Assets.Burned"
+   ],
+   "calls": [ 
+   ],
