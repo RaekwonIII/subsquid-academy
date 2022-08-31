@@ -83,8 +83,8 @@ processor.run(new TypeormDatabase(), async ctx => {
         )
     }
 
-    await ctx.store.insert(assetOps);
     await ctx.store.save(Array.from(assets.values()));
+    await ctx.store.insert(assetOps);
 })
 
 function getAsset(assetMap: Map<string, Asset>, id: string): Asset {
