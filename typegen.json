@@ -1,8 +1,10 @@
 {
   "outDir": "src/types",
-  "specVersions": "https://kusama.archive.subsquid.io/graphql",
+  "specVersions": "https://moonbeam.archive.subsquid.io/graphql",
   "events": [
-    "Balances.Transfer"
+    "Assets.Issued",
+    "Assets.Burned",
+    "Assets.Transferred"
   ],
   "calls": [ 
   ],
