@@ -83,6 +83,7 @@ processor.run(new TypeormDatabase(), async ctx => {
         )
     }
 
+    await ctx.store.insert(assetOps);
     await ctx.store.save(Array.from(assets.values()));
 })
 
