@@ -6,6 +6,9 @@ enum AssetStatus {
 
 type Asset @entity {
   id: ID!
+  supply: BigInt
+  minBalance: BigInt
+  isSufficient: Boolean
   status: AssetStatus!
 }
 

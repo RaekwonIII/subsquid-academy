@@ -5,13 +5,15 @@ import {Store, TypeormDatabase} from "@subsquid/typeorm-store"
 import {In} from "typeorm"
 import { Asset, AssetOperation, AssetStatus} from "./model"
 import {AssetsBurnedEvent, AssetsIssuedEvent, AssetsTransferredEvent} from "./types/events"
+import { AssetsAssetStorage } from "./types/storage"
 
 
 const processor = new SubstrateBatchProcessor()
     .setBatchSize(500)
     .setDataSource({
         // Lookup archive by the network name in the Subsquid registry
-        archive: lookupArchive("moonbeam", {release: "FireSquid"})
+        archive: lookupArchive("moonbeam", {release: "FireSquid"}),
+        chain: "wss://moonbeam.api.onfinality.io/public-ws"
 
         // Use archive created by archive/docker-compose.yml
         // archive: 'http://localhost:8888/graphql'
@@ -56,6 +58,9 @@ type Ctx = BatchContext<Store, Item>
 
 
 processor.run(new TypeormDatabase(), async ctx => {
+
+    const assetsStorage = new AssetsAssetStorage(ctx, ctx.blocks[ctx.blocks.length -1].header);
+
     const assetOperations = getOperationsData(ctx);
 
     const assetIds = new Set(assetOperations.map(op => op.assetId));
@@ -70,6 +75,10 @@ processor.run(new TypeormDatabase(), async ctx => {
         const {id, amount, assetId, status, from, to} = operation;
 
         const asset = getAsset(assets, assetId);
+        const assetData = await assetsStorage.getAsV1201(BigInt(assetId));
+        asset.supply = assetData?.supply;
+        asset.isSufficient = assetData?.isSufficient;
+        asset.minBalance = assetData?.minBalance;
         asset.status = status;
         
         assetOps.push(
